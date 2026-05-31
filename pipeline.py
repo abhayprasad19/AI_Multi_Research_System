@@ -1,75 +1,214 @@
-from agents import build_reader_agent , build_search_agent , writer_chain , critic_chain
+from agents import (
+    build_reader_agent,
+    build_search_agent,
+    writer_chain,
+    critic_chain
+)
 
-def run_research_pipeline(topic : str) -> dict:
+import time
+
+
+# =========================================================
+# RESEARCH PIPELINE
+# =========================================================
+
+def run_research_pipeline(topic: str) -> dict:
 
     state = {}
 
-    #search agent working 
-    print("\n"+" ="*50)
-    print("step 1 - search agent is working ...")
-    print("="*50)
+    print("\n" + "=" * 70)
+    print("STEP 1 → SEARCH AGENT")
+    print("=" * 70)
 
-    search_agent = build_search_agent()
-    search_result = search_agent.invoke({
-        "messages" : [("user", f"Find recent, reliable and detailed information about: {topic}")]
-    })
-    state["search_results"] = search_result['messages'][-1].content
+    try:
 
-    print("\n search result ",state['search_results'])
+        search_agent = build_search_agent()
 
-    #step 2 - reader agent 
-    print("\n"+" ="*50)
-    print("step 2 - Reader agent is scraping top resources ...")
-    print("="*50)
+        search_result = search_agent.invoke({
+            "messages": [
+                (
+                    "user",
+                    f"""
+Find recent, reliable and detailed information about:
 
-    reader_agent = build_reader_agent()
-    reader_result = reader_agent.invoke({
-        "messages": [("user",
-            f"Based on the following search results about '{topic}', "
-            f"pick the most relevant URL and scrape it for deeper content.\n\n"
-            f"Search Results:\n{state['search_results'][:800]}"
-        )]
-    })
+{topic}
 
-    state['scraped_content'] = reader_result['messages'][-1].content
+Focus on:
+- latest developments
+- trends
+- statistics
+- expert insights
+- trustworthy sources
+"""
+                )
+            ]
+        })
 
-    print("\nscraped content: \n", state['scraped_content'])
+        state["search_results"] = (
+            search_result["messages"][-1].content
+        )
 
-    #step 3 - writer chain 
+        print("\nSEARCH COMPLETED")
+        print("\nSEARCH RESULTS:\n")
+        print(state["search_results"][:1500])
 
-    print("\n"+" ="*50)
-    print("step 3 - Writer is drafting the report ...")
-    print("="*50)
+    except Exception as e:
 
-    research_combined = (
-        f"SEARCH RESULTS : \n {state['search_results']} \n\n"
-        f"DETAILED SCRAPED CONTENT : \n {state['scraped_content']}"
-    )
+        print("\nSEARCH AGENT ERROR:")
+        print(str(e))
 
-    state["report"] = writer_chain.invoke({
-        "topic" : topic,
-        "research" : research_combined
-    })
+        state["search_results"] = "No search results found."
 
-    print("\n Final Report\n",state['report'])
+    time.sleep(1)
 
-    #critic report 
+    # =====================================================
+    # STEP 2 → READER AGENT
+    # =====================================================
 
-    print("\n"+" ="*50)
-    print("step 4 - critic is reviewing the report ")
-    print("="*50)
+    print("\n" + "=" * 70)
+    print("STEP 2 → READER AGENT")
+    print("=" * 70)
 
-    state["feedback"] = critic_chain.invoke({
-        "report":state['report']
-    })
+    try:
 
-    print("\n critic report \n", state['feedback'])
+        reader_agent = build_reader_agent()
+
+        reader_result = reader_agent.invoke({
+            "messages": [
+                (
+                    "user",
+                    f"""
+Based on the following search results about:
+
+{topic}
+
+Pick the BEST and MOST RELEVANT source URL.
+
+Then scrape and summarize the content.
+
+SEARCH RESULTS:
+{state["search_results"][:2000]}
+"""
+                )
+            ]
+        })
+
+        state["scraped_content"] = (
+            reader_result["messages"][-1].content
+        )
+
+        print("\nSCRAPING COMPLETED")
+        print("\nSCRAPED CONTENT:\n")
+        print(state["scraped_content"][:2000])
+
+    except Exception as e:
+
+        print("\nREADER AGENT ERROR:")
+        print(str(e))
+
+        state["scraped_content"] = "No scraped content available."
+
+    time.sleep(1)
+
+    # =====================================================
+    # STEP 3 → WRITER AGENT
+    # =====================================================
+
+    print("\n" + "=" * 70)
+    print("STEP 3 → WRITER AGENT")
+    print("=" * 70)
+
+    try:
+
+        research_combined = f"""
+
+SEARCH RESULTS:
+{state["search_results"]}
+
+
+DETAILED SCRAPED CONTENT:
+{state["scraped_content"]}
+
+"""
+
+        state["report"] = writer_chain.invoke({
+            "topic": topic,
+            "research": research_combined
+        })
+
+        print("\nREPORT GENERATED SUCCESSFULLY")
+        print("\nFINAL REPORT:\n")
+        print(state["report"][:3000])
+
+    except Exception as e:
+
+        print("\nWRITER AGENT ERROR:")
+        print(str(e))
+
+        state["report"] = "Failed to generate report."
+
+    time.sleep(1)
+
+    # =====================================================
+    # STEP 4 → CRITIC AGENT
+    # =====================================================
+
+    print("\n" + "=" * 70)
+    print("STEP 4 → CRITIC AGENT")
+    print("=" * 70)
+
+    try:
+
+        state["feedback"] = critic_chain.invoke({
+            "report": state["report"]
+        })
+
+        print("\nCRITIC FEEDBACK:\n")
+        print(state["feedback"])
+
+    except Exception as e:
+
+        print("\nCRITIC ERROR:")
+        print(str(e))
+
+        state["feedback"] = "Critic review failed."
+
+    # =====================================================
+    # PIPELINE FINISHED
+    # =====================================================
+
+    print("\n" + "=" * 70)
+    print("PIPELINE COMPLETED")
+    print("=" * 70)
 
     return state
 
 
+# =========================================================
+# MAIN PROGRAM
+# =========================================================
 
 if __name__ == "__main__":
-    topic = input("\n Enter a research topic : ")
-    run_research_pipeline(topic)
 
+    print("\n")
+    print("=" * 70)
+    print("RESEARCHMIND → MULTI AGENT AI RESEARCH SYSTEM")
+    print("=" * 70)
+
+    topic = input("\nEnter a research topic: ")
+
+    final_state = run_research_pipeline(topic)
+
+    print("\n")
+    print("=" * 70)
+    print("FINAL REPORT")
+    print("=" * 70)
+
+    print(final_state["report"])
+
+    print("\n")
+    print("=" * 70)
+    print("AI CRITIC FEEDBACK")
+    print("=" * 70)
+
+    print(final_state["feedback"])
