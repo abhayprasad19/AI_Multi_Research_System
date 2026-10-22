@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-for key in ("OPENAI_API_KEY", "TAVILY_API_KEY", "GROQ_API_KEY"):
+for key in ("GROQ_API_KEY", "TAVILY_API_KEY", "OPENAI_API_KEY"):
     try:
         value = st.secrets.get(key)
     except Exception:
@@ -24,8 +24,8 @@ for key in ("OPENAI_API_KEY", "TAVILY_API_KEY", "GROQ_API_KEY"):
 # ==================================================
 
 from agents import (
-    build_reader_agent,
     build_search_agent,
+    build_reader_agent,
     writer_chain,
     critic_chain,
 )
@@ -50,8 +50,7 @@ st.markdown(
     }
 
     .hero {
-        padding-top: 35px;
-        padding-bottom: 25px;
+        padding: 35px 0 25px;
     }
 
     .hero-eyebrow {
@@ -142,7 +141,7 @@ st.markdown(
 )
 
 # ==================================================
-# PAGE HEADER
+# HEADER
 # ==================================================
 
 st.markdown(
@@ -155,9 +154,8 @@ st.markdown(
             Research<span>Mind</span>
         </div>
         <div class="hero-sub">
-            Autonomous AI research agents that search the web,
-            read sources, analyze information and generate
-            professional research reports using Groq + Tavily.
+            AI research agents that search the web, analyze findings,
+            and generate concise professional research reports.
         </div>
     </div>
     """,
@@ -167,7 +165,7 @@ st.markdown(
 st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
 # ==================================================
-# INPUT AND AGENT STATUS
+# INPUT AND OPTIONS
 # ==================================================
 
 left_col, right_col = st.columns([5, 4])
@@ -177,6 +175,16 @@ with left_col:
         "Research Topic",
         placeholder="Enter any topic...",
         max_chars=200,
+    )
+
+    use_reader = st.checkbox(
+        "Use Reader Agent for additional analysis (extra API usage)",
+        value=False,
+    )
+
+    use_critic = st.checkbox(
+        "Run AI Critic review (extra API usage)",
+        value=False,
     )
 
     run_btn = st.button(
@@ -210,15 +218,14 @@ with right_col:
 # ==================================================
 
 def extract_text(result):
-    """Extract readable content from LangChain results."""
+    """Extract readable text from LangChain results."""
     if isinstance(result, str):
         return result
 
     if isinstance(result, dict):
-        messages = result.get("messages", [])
         parts = []
 
-        for message in messages:
+        for message in result.get("messages", []):
             if isinstance(message, dict):
                 content = message.get("content")
             else:
@@ -239,7 +246,7 @@ def extract_text(result):
 
 
 def invoke_with_retry(chain, inputs, max_retries=1):
-    """Retry a temporary rate limit once."""
+    """Retry rate-limit failures once, with a short delay."""
     warning = st.empty()
 
     for attempt in range(max_retries + 1):
@@ -282,7 +289,10 @@ if run_btn:
 
     else:
         try:
-            # SEARCH AGENT
+            # ------------------------------------------
+            # STEP 1: SEARCH
+            # ------------------------------------------
+
             with st.spinner("🔍 Search Agent is searching..."):
                 search_agent = build_search_agent()
 
@@ -293,85 +303,76 @@ if run_btn:
                             (
                                 "user",
                                 f"Find up to 3 reliable sources about "
-                                f"{topic}. Return key findings and URLs. "
-                                "Keep the answer concise."
+                                f"{topic}. Return key findings and source "
+                                "URLs. Keep the answer concise."
                             )
                         ]
                     },
                 )
 
+            search_text = extract_text(search_result)[:1200]
             st.success("✅ Search completed")
 
-            search_text = extract_text(search_result)[:700]
+            # ------------------------------------------
+            # STEP 2: OPTIONAL READER
+            # ------------------------------------------
 
-            # READER AGENT
-            with st.spinner("📄 Reader Agent is analyzing sources..."):
-                reader_agent = build_reader_agent()
+            reader_text = ""
 
-                reader_result = invoke_with_retry(
-                    reader_agent,
-                    {
-                        "messages": [
-                            (
-                                "user",
-                                f"Summarize {topic} using available sources. "
-                                "Return at most 4 concise facts with URLs. "
-                                "Avoid long explanations."
-                            )
-                        ]
-                    },
-                )
+            if use_reader:
+                with st.spinner("📄 Reader Agent is analyzing sources..."):
+                    reader_agent = build_reader_agent()
 
-            st.success("✅ Reading completed")
+                    reader_result = invoke_with_retry(
+                        reader_agent,
+                        {
+                            "messages": [
+                                (
+                                    "user",
+                                    f"Summarize {topic} in at most "
+                                    "4 concise facts with available URLs. "
+                                    "Avoid long explanations."
+                                )
+                            ]
+                        },
+                    )
 
-            reader_text = extract_text(reader_result)[:900]
+                reader_text = extract_text(reader_result)[:900]
+                st.success("✅ Reading completed")
+            else:
+                st.info("Reader Agent skipped to conserve API quota.")
 
-            # WRITER AGENT
-            research_data = (
-                f"SEARCH:\n{search_text}\n\n"
-                f"READING:\n{reader_text}"
-            )
+            # ------------------------------------------
+            # STEP 3: WRITER
+            # ------------------------------------------
+
+            research_data = f"SEARCH FINDINGS:\n{search_text}"
+
+            if reader_text:
+                research_data += f"\n\nREADER FINDINGS:\n{reader_text}"
 
             with st.spinner("✍️ Writer Agent is preparing the report..."):
                 report = invoke_with_retry(
                     writer_chain,
                     {
                         "topic": topic[:200],
-                        "research": research_data,
+                        "research": research_data[:2200],
                     },
                 )
 
             report = extract_text(report)
             st.success("✅ Report generated")
 
-            # CRITIC AGENT
-            with st.spinner("🧠 Critic Agent is reviewing the report..."):
-                feedback = invoke_with_retry(
-                    critic_chain,
-                    {
-                        "report": report[:2000],
-                    },
-                )
+            # ------------------------------------------
+            # DISPLAY REPORT
+            # ------------------------------------------
 
-            feedback = extract_text(feedback)
-            st.success("✅ Critique completed")
-
-            # REPORT OUTPUT
             st.markdown(
                 '<div class="report-panel">',
                 unsafe_allow_html=True,
             )
             st.subheader("📘 Research Report")
             st.markdown(report)
-            st.markdown("</div>", unsafe_allow_html=True)
-
-            # CRITIC OUTPUT
-            st.markdown(
-                '<div class="feedback-panel">',
-                unsafe_allow_html=True,
-            )
-            st.subheader("🧠 AI Critic Feedback")
-            st.markdown(feedback)
             st.markdown("</div>", unsafe_allow_html=True)
 
             st.download_button(
@@ -381,6 +382,30 @@ if run_btn:
                 mime="text/markdown",
                 use_container_width=True,
             )
+
+            # ------------------------------------------
+            # STEP 4: OPTIONAL CRITIC
+            # ------------------------------------------
+
+            if use_critic:
+                with st.spinner("🧠 Critic Agent is reviewing the report..."):
+                    feedback = invoke_with_retry(
+                        critic_chain,
+                        {"report": report[:1800]},
+                    )
+
+                feedback = extract_text(feedback)
+                st.success("✅ Critique completed")
+
+                st.markdown(
+                    '<div class="feedback-panel">',
+                    unsafe_allow_html=True,
+                )
+                st.subheader("🧠 AI Critic Feedback")
+                st.markdown(feedback)
+                st.markdown("</div>", unsafe_allow_html=True)
+            else:
+                st.info("AI Critic skipped to conserve API quota.")
 
         except Exception as error:
             message = str(error).lower()
@@ -393,9 +418,9 @@ if run_btn:
                 or "rate limit reached" in message
             ):
                 st.warning(
-                    "Groq's rate limit is active. Wait before trying "
-                    "again. If this continues, the model's token budget "
-                    "or agent/tool calls need further optimization."
+                    "Groq's rate limit is active. Wait for the quota "
+                    "to recover before trying again. Avoid repeated "
+                    "submissions while the limit is active."
                 )
 
             st.code(f"{type(error).__name__}: {error}")
