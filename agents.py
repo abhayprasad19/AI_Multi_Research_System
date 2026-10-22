@@ -12,14 +12,14 @@ from tools import web_search, scrape_url
 load_dotenv()
 
 # ==================================================
-# GROQ LLM CONFIGURATION
+# GROQ CONFIGURATION
 # ==================================================
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 if not GROQ_API_KEY:
     raise ValueError(
-        "GROQ_API_KEY is missing. Add it to your .env file "
+        "GROQ_API_KEY is missing. Add it to .env "
         "or Streamlit Cloud Secrets."
     )
 
@@ -27,6 +27,7 @@ llm = ChatGroq(
     groq_api_key=GROQ_API_KEY,
     model_name="openai/gpt-oss-120b",
     temperature=0,
+    max_tokens=600,
     max_retries=0,
 )
 
@@ -39,10 +40,10 @@ def build_search_agent():
         model=llm,
         tools=[web_search],
         system_prompt=(
-            "You are a web research assistant. "
+            "You are a concise web research agent. "
             "Search for reliable sources about the user's topic. "
-            "Return at most 5 key findings and their source URLs. "
-            "Be concise and avoid repeating information."
+            "Return at most 3 useful findings and source URLs. "
+            "Avoid repeating information. Use tools only when needed."
         ),
     )
 
@@ -56,10 +57,10 @@ def build_reader_agent():
         model=llm,
         tools=[scrape_url],
         system_prompt=(
-            "You are a research reader. Read available source pages "
-            "and extract only relevant facts. Return at most 5 concise "
-            "bullet points with source URLs. Do not write a full report. "
-            "Avoid unnecessary explanations."
+            "You are a concise research reader. "
+            "Read relevant source pages when URLs are available. "
+            "Return at most 4 key facts and their source URLs. "
+            "Do not write a full report. Avoid unnecessary tool calls."
         ),
     )
 
@@ -71,36 +72,27 @@ def build_reader_agent():
 writer_prompt = ChatPromptTemplate.from_messages([
     (
         "system",
-        "You are a concise, factual research writer. "
-        "Use only the supplied research. Do not invent facts or sources. "
-        "Write a useful report without unnecessary repetition."
+        "Write concise, factual reports using the supplied evidence. "
+        "Do not invent facts, citations, or source URLs."
     ),
     (
         "human",
-        """Create a concise research report.
-
-Topic:
-{topic}
+        """Topic: {topic}
 
 Research:
 {research}
 
-Use these sections:
+Write a compact report with:
 1. Introduction
-2. Key Findings (3 concise bullet points)
+2. Three key findings
 3. Conclusion
-4. Sources (include URLs supplied in the research)
+4. Sources
 
-Keep the report focused and professional.
-If the research lacks evidence, state that clearly."""
+Keep it concise, professional, and factual."""
     ),
 ])
 
-writer_chain = (
-    writer_prompt
-    | llm
-    | StrOutputParser()
-)
+writer_chain = writer_prompt | llm | StrOutputParser()
 
 
 # ==================================================
@@ -110,34 +102,25 @@ writer_chain = (
 critic_prompt = ChatPromptTemplate.from_messages([
     (
         "system",
-        "You are a concise and constructive research critic. "
-        "Evaluate evidence, clarity, accuracy, and completeness. "
-        "Do not rewrite the entire report."
+        "Evaluate research briefly, fairly, and constructively."
     ),
     (
         "human",
-        """Review this research report:
-
+        """Review this report:
 {report}
 
-Return this format:
-
+Return:
 Score: X/10
 
 Strengths:
-- One strength
-- Another strength
+- One or two bullets
 
-Areas to Improve:
-- One improvement
+Improvement:
+- One bullet
 
 Verdict:
-One concise sentence."""
+One sentence."""
     ),
 ])
 
-critic_chain = (
-    critic_prompt
-    | llm
-    | StrOutputParser()
-)
+critic_chain = critic_prompt | llm | StrOutputParser()

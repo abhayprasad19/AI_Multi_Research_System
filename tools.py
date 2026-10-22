@@ -8,9 +8,9 @@ from langchain.tools import tool
 
 load_dotenv()
 
-# =========================================================
+# ==================================================
 # TAVILY CLIENT
-# =========================================================
+# ==================================================
 
 def get_tavily_client():
     api_key = os.getenv("TAVILY_API_KEY")
@@ -24,19 +24,16 @@ def get_tavily_client():
     return TavilyClient(api_key=api_key)
 
 
-# =========================================================
-# WEB SEARCH TOOL
-# =========================================================
+# ==================================================
+# WEB SEARCH
+# ==================================================
 
 @tool
 def web_search(query: str) -> str:
-    """Search the web for recent and reliable information.
+    """Search the web for reliable sources.
 
     Args:
-        query: A plain-text search query describing the research topic.
-
-    Returns:
-        A concise list of titles, URLs, and source snippets.
+        query: A plain-text search query.
     """
     try:
         query = query.strip()
@@ -44,9 +41,9 @@ def web_search(query: str) -> str:
         if not query:
             return "Search error: query cannot be empty."
 
-        tavily = get_tavily_client()
+        client = get_tavily_client()
 
-        results = tavily.search(
+        results = client.search(
             query=query,
             search_depth="basic",
             max_results=3,
@@ -55,7 +52,7 @@ def web_search(query: str) -> str:
 
         output = []
 
-        for idx, result in enumerate(
+        for index, result in enumerate(
             results.get("results", []), start=1
         ):
             title = result.get("title") or "Untitled"
@@ -63,58 +60,59 @@ def web_search(query: str) -> str:
             content = result.get("content") or ""
 
             output.append(
-                f"Result {idx}\n"
+                f"Result {index}\n"
                 f"Title: {title}\n"
                 f"URL: {url}\n"
-                f"Snippet: {content[:300]}"
+                f"Snippet: {content[:250]}"
             )
 
         if not output:
-            return f"No web results found for: {query}"
+            return "No search results found."
 
         return "\n\n".join(output)
 
     except Exception as error:
-        return f"WEB SEARCH ERROR: {type(error).__name__}: {error}"
+        return (
+            f"WEB SEARCH ERROR: "
+            f"{type(error).__name__}: {error}"
+        )
 
 
-# =========================================================
-# WEBPAGE SCRAPING TOOL
-# =========================================================
+# ==================================================
+# WEBPAGE SCRAPER
+# ==================================================
 
 @tool
 def scrape_url(url: str) -> str:
     """Extract readable text from a webpage.
 
     Args:
-        url: The complete HTTP or HTTPS URL of the webpage.
-
-    Returns:
-        Cleaned webpage text, limited to 2500 characters.
+        url: The complete HTTP or HTTPS webpage URL.
     """
     try:
         url = url.strip()
 
         if not url.startswith(("https://", "http://")):
-            return "SCRAPING ERROR: Provide a valid HTTP or HTTPS URL."
-
-        headers = {
-            "User-Agent": "Mozilla/5.0 (compatible; ResearchMind/1.0)"
-        }
+            return "Scraping error: provide a valid HTTP or HTTPS URL."
 
         response = requests.get(
             url,
             timeout=10,
-            headers=headers,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (compatible; ResearchMind/1.0)"
+                )
+            },
         )
+
         response.raise_for_status()
 
         soup = BeautifulSoup(response.text, "html.parser")
 
-        for tag in soup(
-            ["script", "style", "nav", "footer", "header",
-             "aside", "noscript", "form"]
-        ):
+        for tag in soup([
+            "script", "style", "nav", "footer",
+            "header", "aside", "noscript", "form"
+        ]):
             tag.decompose()
 
         paragraphs = [
@@ -127,18 +125,15 @@ def scrape_url(url: str) -> str:
         if not text:
             text = soup.get_text(separator=" ", strip=True)
 
-        cleaned_text = " ".join(text.split())
+        text = " ".join(text.split())
 
-        if not cleaned_text:
-            return "No readable page text was found."
-
-        return cleaned_text[:2500]
+        return text[:1800] if text else "No readable page text found."
 
     except requests.exceptions.Timeout:
-        return "SCRAPING ERROR: The webpage request timed out."
+        return "Scraping error: request timed out."
 
     except requests.exceptions.RequestException as error:
-        return f"SCRAPING REQUEST ERROR: {error}"
+        return f"Scraping request error: {error}"
 
     except Exception as error:
-        return f"SCRAPING ERROR: {type(error).__name__}: {error}"
+        return f"Scraping error: {type(error).__name__}: {error}"

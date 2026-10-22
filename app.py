@@ -37,7 +37,7 @@ st.set_page_config(
 )
 
 # ==================================================
-# CUSTOM STYLING
+# STYLING
 # ==================================================
 
 st.markdown(
@@ -142,7 +142,7 @@ st.markdown(
 )
 
 # ==================================================
-# HEADER
+# PAGE HEADER
 # ==================================================
 
 st.markdown(
@@ -167,7 +167,7 @@ st.markdown(
 st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
 # ==================================================
-# MAIN INTERFACE
+# INPUT AND AGENT STATUS
 # ==================================================
 
 left_col, right_col = st.columns([5, 4])
@@ -210,7 +210,7 @@ with right_col:
 # ==================================================
 
 def extract_text(result):
-    """Extract readable text from LangChain agent results."""
+    """Extract readable content from LangChain results."""
     if isinstance(result, str):
         return result
 
@@ -238,11 +238,15 @@ def extract_text(result):
     return str(result)
 
 
-def invoke_with_retry(chain, inputs, max_retries=2):
-    """Retry temporary rate limits with increasing delays."""
+def invoke_with_retry(chain, inputs, max_retries=1):
+    """Retry a temporary rate limit once."""
+    warning = st.empty()
+
     for attempt in range(max_retries + 1):
         try:
-            return chain.invoke(inputs)
+            result = chain.invoke(inputs)
+            warning.empty()
+            return result
 
         except Exception as error:
             message = str(error).lower()
@@ -254,14 +258,18 @@ def invoke_with_retry(chain, inputs, max_retries=2):
             )
 
             if not rate_limited or attempt == max_retries:
+                warning.empty()
                 raise
 
-            delay = 7 * (attempt + 1)
+            delay = 10 * (attempt + 1)
 
-            st.warning(
-                f"Rate limit reached. Retrying in {delay} seconds..."
+            warning.warning(
+                f"Temporary rate limit. Retrying in {delay} seconds..."
             )
             time.sleep(delay)
+
+    warning.empty()
+    raise RuntimeError("The request could not be completed.")
 
 
 # ==================================================
@@ -274,7 +282,7 @@ if run_btn:
 
     else:
         try:
-            # STEP 1: SEARCH
+            # SEARCH AGENT
             with st.spinner("🔍 Search Agent is searching..."):
                 search_agent = build_search_agent()
 
@@ -284,9 +292,9 @@ if run_btn:
                         "messages": [
                             (
                                 "user",
-                                f"Research {topic}. Find a few reliable "
-                                "sources and return the main findings "
-                                "with source URLs. Keep the response short."
+                                f"Find up to 3 reliable sources about "
+                                f"{topic}. Return key findings and URLs. "
+                                "Keep the answer concise."
                             )
                         ]
                     },
@@ -294,10 +302,9 @@ if run_btn:
 
             st.success("✅ Search completed")
 
-            # Extract the search result before the next step.
-            search_text = extract_text(search_result)[:1000]
+            search_text = extract_text(search_result)[:700]
 
-            # STEP 2: READ
+            # READER AGENT
             with st.spinner("📄 Reader Agent is analyzing sources..."):
                 reader_agent = build_reader_agent()
 
@@ -307,10 +314,9 @@ if run_btn:
                         "messages": [
                             (
                                 "user",
-                                f"Summarize {topic} in no more than "
-                                "5 short bullet points. Include the most "
-                                "important facts and available source URLs. "
-                                "Avoid lengthy explanations."
+                                f"Summarize {topic} using available sources. "
+                                "Return at most 4 concise facts with URLs. "
+                                "Avoid long explanations."
                             )
                         ]
                     },
@@ -318,15 +324,15 @@ if run_btn:
 
             st.success("✅ Reading completed")
 
-            reader_text = extract_text(reader_result)[:1200]
+            reader_text = extract_text(reader_result)[:900]
 
-            # STEP 3: WRITE
+            # WRITER AGENT
             research_data = (
-                f"SEARCH FINDINGS:\n{search_text}\n\n"
-                f"READER FINDINGS:\n{reader_text}"
+                f"SEARCH:\n{search_text}\n\n"
+                f"READING:\n{reader_text}"
             )
 
-            with st.spinner("✍️ Writer Agent is generating the report..."):
+            with st.spinner("✍️ Writer Agent is preparing the report..."):
                 report = invoke_with_retry(
                     writer_chain,
                     {
@@ -338,19 +344,19 @@ if run_btn:
             report = extract_text(report)
             st.success("✅ Report generated")
 
-            # STEP 4: CRITIQUE
+            # CRITIC AGENT
             with st.spinner("🧠 Critic Agent is reviewing the report..."):
                 feedback = invoke_with_retry(
                     critic_chain,
                     {
-                        "report": report[:2500],
+                        "report": report[:2000],
                     },
                 )
 
             feedback = extract_text(feedback)
             st.success("✅ Critique completed")
 
-            # DISPLAY REPORT
+            # REPORT OUTPUT
             st.markdown(
                 '<div class="report-panel">',
                 unsafe_allow_html=True,
@@ -359,7 +365,7 @@ if run_btn:
             st.markdown(report)
             st.markdown("</div>", unsafe_allow_html=True)
 
-            # DISPLAY CRITIC FEEDBACK
+            # CRITIC OUTPUT
             st.markdown(
                 '<div class="feedback-panel">',
                 unsafe_allow_html=True,
@@ -377,22 +383,19 @@ if run_btn:
             )
 
         except Exception as error:
-            error_message = str(error).lower()
+            message = str(error).lower()
 
-            st.error(
-                "The research workflow could not be completed."
-            )
+            st.error("The research workflow could not be completed.")
 
             if (
-                "429" in error_message
-                or "rate_limit_exceeded" in error_message
-                or "rate limit reached" in error_message
+                "429" in message
+                or "rate_limit_exceeded" in message
+                or "rate limit reached" in message
             ):
                 st.warning(
-                    "Groq's token rate limit is still active. "
-                    "Wait before retrying. If this continues, the "
-                    "model configuration or agent prompts in "
-                    "agents.py must be optimized."
+                    "Groq's rate limit is active. Wait before trying "
+                    "again. If this continues, the model's token budget "
+                    "or agent/tool calls need further optimization."
                 )
 
             st.code(f"{type(error).__name__}: {error}")
