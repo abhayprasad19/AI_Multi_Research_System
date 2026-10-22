@@ -11,17 +11,10 @@ from tools import web_search, scrape_url
 
 load_dotenv()
 
-# ==================================================
-# GROQ CONFIGURATION
-# ==================================================
-
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 if not GROQ_API_KEY:
-    raise ValueError(
-        "GROQ_API_KEY is missing. Add it to .env "
-        "or Streamlit Cloud Secrets."
-    )
+    raise ValueError("GROQ_API_KEY is missing.")
 
 llm = ChatGroq(
     groq_api_key=GROQ_API_KEY,
@@ -31,49 +24,47 @@ llm = ChatGroq(
     max_retries=0,
 )
 
-# ==================================================
-# SEARCH AGENT
-# ==================================================
-
+# Search agent: explicitly enforce the tool argument schema.
 def build_search_agent():
     return create_agent(
         model=llm,
         tools=[web_search],
-        system_prompt=(
-            "You are a concise web research agent. "
-            "Search for reliable sources about the user's topic. "
-            "Return at most 3 useful findings and source URLs. "
-            "Avoid repeating information. Use tools only when needed."
-        ),
+        system_prompt="""
+You are a web research agent.
+
+When calling web_search, you MUST provide exactly one argument:
+query: a plain string containing the search terms.
+
+Correct call:
+web_search(query="latest AI developments")
+
+Never use cursor, id, page, offset, or any other arguments.
+Do not paginate. Make at most one web_search call.
+After receiving results, summarize the best findings and URLs.
+""",
     )
 
-
-# ==================================================
-# READER AGENT
-# ==================================================
-
+# Reader agent: use only valid URL arguments.
 def build_reader_agent():
     return create_agent(
         model=llm,
         tools=[scrape_url],
-        system_prompt=(
-            "You are a concise research reader. "
-            "Read relevant source pages when URLs are available. "
-            "Return at most 4 key facts and their source URLs. "
-            "Do not write a full report. Avoid unnecessary tool calls."
-        ),
+        system_prompt="""
+You are a concise research reader.
+
+The scrape_url tool requires exactly one argument:
+url: a complete HTTP or HTTPS URL.
+
+Never use cursor, id, or pagination arguments.
+Read only relevant URLs and return up to four key facts.
+""",
     )
 
-
-# ==================================================
-# WRITER CHAIN
-# ==================================================
-
+# Writer chain
 writer_prompt = ChatPromptTemplate.from_messages([
     (
         "system",
-        "Write concise, factual reports using the supplied evidence. "
-        "Do not invent facts, citations, or source URLs."
+        "Write concise, factual reports. Do not invent facts or URLs."
     ),
     (
         "human",
@@ -82,27 +73,23 @@ writer_prompt = ChatPromptTemplate.from_messages([
 Research:
 {research}
 
-Write a compact report with:
+Write a report containing:
 1. Introduction
 2. Three key findings
 3. Conclusion
-4. Sources
+4. Sources with URLs
 
-Keep it concise, professional, and factual."""
+Keep it concise and professional."""
     ),
 ])
 
 writer_chain = writer_prompt | llm | StrOutputParser()
 
-
-# ==================================================
-# CRITIC CHAIN
-# ==================================================
-
+# Critic chain
 critic_prompt = ChatPromptTemplate.from_messages([
     (
         "system",
-        "Evaluate research briefly, fairly, and constructively."
+        "Review reports constructively and concisely."
     ),
     (
         "human",
@@ -111,15 +98,9 @@ critic_prompt = ChatPromptTemplate.from_messages([
 
 Return:
 Score: X/10
-
-Strengths:
-- One or two bullets
-
-Improvement:
-- One bullet
-
-Verdict:
-One sentence."""
+Strengths: two bullets
+Improvements: one or two bullets
+Verdict: one sentence."""
     ),
 ])
 
